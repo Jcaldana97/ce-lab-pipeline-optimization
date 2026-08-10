@@ -1,0 +1,84 @@
+name: Reusable Terraform CI
+ 
+on:
+  workflow_call:
+    inputs:
+      terraform_version:
+        description: "Terraform version to use"
+        required: false
+        type: string
+        default: "1.13.1"
+      working_directory:
+        description: "Directory containing Terraform files"
+        required: false
+        type: string
+        default: "terraform"
+    secrets:
+      aws_access_key_id:
+        required: false
+      aws_secret_access_key:
+        required: false
+ 
+permissions:
+  contents: read
+  pull-requests: write
+ 
+jobs:
+  lint:
+    name: Format Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+      - run: terraform fmt -check -recursive -diff
+ 
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ${{ inputs.working_directory }}/.terraform
+            ${{ inputs.working_directory }}/.terraform.lock.hcl
+          key: tf-${{ inputs.terraform_version }}-${{ hashFiles(format('{0}/.terraform.lock.hcl', inputs.working_directory)) }}
+      - run: terraform init -backend=false
+      - run: terraform validate
+ 
+  plan:
+    name: Plan
+    needs: [lint, validate]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ${{ inputs.working_directory }}/.terraform
+            ${{ inputs.working_directory }}/.terraform.lock.hcl
+          key: tf-${{ inputs.terraform_version }}-${{ hashFiles(format('{0}/.terraform.lock.hcl', inputs.working_directory)) }}
+      - run: terraform init -backend=false
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -no-color -input=false
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.aws_access_key_id }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.aws_secret_access_key }}
